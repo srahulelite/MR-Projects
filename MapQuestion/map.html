@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map with Regions</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 500px;
+            width: 80%;
+            margin: 20px auto;
+        }
+
+        #regions {
+            margin: 20px;
+            text-align: center;
+        }
+
+        .CQanswerOption {
+            display: inline-block;
+            margin: 10px;
+            padding: 5px;
+            border: 1px solid black;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .CQanswerOption.selected {
+            background-color: lightblue;
+        }
+
+        fieldset {
+            margin-top: 10px;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+
+        legend {
+            font-weight: bold;
+        }
+
+        .custom-popup {
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        .answers-wrapper,
+.selection-question-label {
+    display: none !important;
+}
+
+.custom-question-canvas {
+    display: flex;
+    flex-direction: row-reverse;
+}
+
+fieldset {
+    border: 1px solid grey;
+    border-radius: 10px;
+    margin-bottom: 10px;
+}
+
+#map {
+    height: 609px;
+    width: 650px;
+    /* border: 1px solid grey; */
+    margin-top: 1%;
+    margin-left: 2%;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    box-shadow: 5px 5px 8px 2px grey;
+}
+
+#regions {
+    margin-top: 1%;
+    height: 600px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #007BFF #f0f0f0;
+    padding: 5px;
+    box-shadow: 2px 3px 5px 3px grey;
+    border-radius: 8px;
+
+}
+
+#regions::-webkit-scrollbar {
+    width: 10px;
+}
+
+label {
+    margin: 5px;
+    cursor: pointer;
+}
+
+.leaflet-interactive {
+    stroke-width: 1px;
+}
+
+.custom-popup {
+    opacity: 0.7 !important;
+}
+
+.leaflet-popup-content {
+    line-height: .8 !important;
+}
+
+.CQanswerOption {
+    border: 2px solid grey;
+    padding: 5px;
+    border-radius: 5px;
+    margin: 3px;
+    display: flex;
+    cursor: pointer;
+}
+
+.CQanswerOption:hover {
+    border: 2px solid blue;
+}
+
+.CQanswerOption.selected {
+    border: 2px solid #007BFF;
+}
+
+.leaflet-control-attribution a {
+    display: none;
+}
+
+.CQanswerOption input[type="radio"] {
+    /* clip-path: inset(50%); */
+    /* position: absolute; */
+    visibility: hidden;
+    /* Hide the radio button */
+    position: relative;
+    /* Keep it in the normal flow */
+    opacity: 0;
+    /* Make it invisible */
+    width: 0;
+    /* Prevent it from occupying space */
+    height: 0;
+    /* Prevent it from occupying space */
+    margin: 0;
+    border: 0;
+}
+    </style>
+</head>
+<body>
+
+<div class="custom-question-canvas">
+    <!-- Map and regions will be injected here -->
+</div>
+
+<!-- Load Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+<!-- Load TopoJSON -->
+<script src="https://d3js.org/topojson.v1.min.js"></script>
+
+<script>
+    (function() {
+        const setAnswerValuesOnMap = (rsQno, rsSubqIndex, rsParams, rsSubqData) => {
+            let {
+                verticalOptions = [],
+                horizontalOptions = [],
+                selectionType
+            } = rsSubqData || {};
+
+            const mapElement = document.createElement('div');
+            mapElement.id = "map";
+            const regionElement = document.createElement('div');
+            regionElement.id = "regions";
+
+            const customCQ = document.querySelector(".custom-question-canvas");
+            customCQ.appendChild(mapElement);
+            customCQ.appendChild(regionElement);
+
+            const zoomX = 7;
+            const ukBounds = [
+                [49.9, -8.6], // Southwest corner
+                [60.9, 1.8] // Northeast corner
+            ];
+
+            const map = L.map('map', {
+                maxBounds: ukBounds,
+                maxBoundsViscosity: 1.0
+            });
+
+            map.setView([54.0, -2.5], 5);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+                maxZoom: zoomX,
+                minZoom: 5,
+            }).addTo(map);
+
+            map.on('drag', function() {
+                map.panInsideBounds(ukBounds, { animate: false });
+            });
+
+            const geoJsonUrls = [
+                { url: 'https://martinjc.github.io/UK-GeoJSON/json/eng/topo_eer.json', name: 'England' },
+                { url: 'https://martinjc.github.io/UK-GeoJSON/json/wal/topo_eer.json', name: 'Wales' },
+                { url: 'https://martinjc.github.io/UK-GeoJSON/json/sco/topo_eer.json', name: 'Scotland' },
+                { url: 'https://martinjc.github.io/UK-GeoJSON/json/ni/topo_wpc.json', name: 'Northern Ireland' }
+            ];
+
+            verticalOptions = verticalOptions.map((x) => toTitleCase(extractContentFromHtml(x.title[0].text)));
+
+            let currentHighlightedRegion = null;
+            let currentSelectedRegion = null;
+            const regionBounds = [];
+
+            geoJsonUrls.forEach(({ url }) => fetchGeoJson(url));
+
+            function fetchGeoJson(url) {
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => processGeoJson(data, url))
+                    .catch(error => console.error('Error fetching GeoJSON:', error));
+            }
+
+            function processGeoJson(data, url) {
+                const objectKey = Object.keys(data.objects)[0];
+                const regions = topojson.feature(data, data.objects[objectKey]).features;
+
+                const countryName = geoJsonUrls.find(item => item.url === url).name || "unknown";
+                const fieldset = createFieldset(countryName);
+
+                regions.forEach(region => {
+                    const { properties, geometry } = region;
+                    let name = countryName == "Northern Ireland" ? toTitleCase(properties.PC_NAME) : toTitleCase(properties.EER13NM);
+                    // if (verticalOptions.includes(name)) {
+                        const polygon = createRegionPolygon(geometry);
+                        addPolygonInteraction(polygon, name);
+                        createRadioButton(name, fieldset, polygon);
+
+                        regionBounds.push(L.geoJSON(geometry).getBounds());
+                    // }
+                });
+            }
+
+            if (regionBounds.length > 0) {
+                const combinedBounds = L.latLngBounds(regionBounds);
+                map.fitBounds(combinedBounds);
+            }
+
+            function createFieldset(countryName) {
+                const fieldset = document.createElement('fieldset');
+                const legend = document.createElement('legend');
+                legend.innerText = countryName;
+                fieldset.appendChild(legend);
+                document.getElementById('regions').appendChild(fieldset);
+                return fieldset;
+            }
+
+            function createRegionPolygon(geometry) {
+                return L.geoJSON(geometry, {
+                    style: {
+                        color: 'dodgerblue',
+                        fillColor: 'orange',
+                        fillOpacity: 0,
+                        opacity: 1
+                    }
+                }).addTo(map);
+            }
+
+            function addPolygonInteraction(polygon, name) {
+                polygon.on('mouseover', () => highlightRegion(polygon, true));
+                polygon.on('mouseout', () => {
+                    if (polygon !== currentSelectedRegion) {
+                        highlightRegion(polygon, false);
+                    }
+                });
+                polygon.on('click', () => handleRegionClick(polygon, name));
+                polygon.bindPopup(name, { className: 'custom-popup' });
+            }
+
+            function handleRegionClick(polygon, name) {
+                unhighlightCurrentRegion();
+                highlightRegion(polygon, true);
+                currentSelectedRegion = polygon;
+                resetRadioButtons(name);
+                changeDetected();
+            }
+
+            function createRadioButton(name, fieldset, polygon) {
+                const answerOption = document.createElement("div");
+                answerOption.setAttribute("class", "CQanswerOption");
+
+                const radioButton = document.createElement('input');
+                radioButton.type = 'radio';
+                radioButton.name = 'region';
+                radioButton.value = name;
+                radioButton.id = name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+
+                const label = document.createElement('label');
+                label.htmlFor = radioButton.id;
+                label.innerText = name;
+
+                answerOption.appendChild(radioButton);
+                answerOption.appendChild(label);
+                answerOption.appendChild(document.createElement('br'));
+
+                fieldset.appendChild(answerOption);
+
+                radioButton.addEventListener('change', () => {
+                    unhighlightCurrentRegion();
+                    highlightRegion(polygon, true);
+                    currentSelectedRegion = polygon;
+                    changeDetected();
+                });
+
+                answerOption.addEventListener('click', function() {
+                    const radio = this.querySelector('input[type="radio"]');
+                    map.closePopup();
+                    if (!radio.checked) {
+                        answerOptionSelection();
+                        radio.checked = true;
+                        this.classList.add('selected');
+                        const event = new Event('change');
+                        radio.dispatchEvent(event);
+                    }
+                });
+            }
+
+            function answerOptionSelection() {
+                document.querySelectorAll('input[name="region"]').forEach(r => {
+                    r.checked = false;
+                    const parentDiv = r.closest('.CQanswerOption');
+                    if (parentDiv) {
+                        parentDiv.classList.remove('selected');
+                    }
+                });
+            }
+
+            function highlightRegion(polygon, highlight) {
+                polygon.setStyle({
+                    fillOpacity: highlight ? 0.5 : 0
+                });
+                if (highlight) {
+                    currentHighlightedRegion = polygon;
+                } else if (currentHighlightedRegion === polygon) {
+                    currentHighlightedRegion = null;
+                }
+            }
+
+            function unhighlightCurrentRegion() {
+                if (currentHighlightedRegion) {
+                    highlightRegion(currentHighlightedRegion, false);
+                }
+                if (currentSelectedRegion) {
+                    highlightRegion(currentSelectedRegion, false);
+                    currentSelectedRegion = null;
+                }
+            }
+
+            function resetRadioButtons(name) {
+                answerOptionSelection();
+                document.querySelectorAll('input[name="region"]').forEach(input => {
+                    input.checked = input.value === name;
+                    if (input.checked) {
+                        const parentDiv = input.closest('.CQanswerOption');
+                        if (parentDiv) {
+                            parentDiv.classList.add('selected');
+                        }
+                    }
+                });
+            }
+
+            function changeDetected() {
+                document.querySelectorAll('input[name="region"]').forEach(input => {
+                    if (input.checked) {
+                        console.log(`Selected region: ${input.value}`);
+                    }
+                });
+            }
+
+            function extractContentFromHtml(htmlString) {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = htmlString;
+                return tempDiv.innerText || tempDiv.textContent || '';
+            }
+
+            function toTitleCase(str) {
+                return str.replace(/\w\S*/g, function(txt) {
+                    return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+                });
+            }
+        };
+
+        setAnswerValuesOnMap();
+    })();
+</script>
+
+</body>
+</html>
